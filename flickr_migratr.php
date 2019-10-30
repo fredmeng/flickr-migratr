@@ -1,18 +1,26 @@
 <?php
 
-const src_api_key = '9b1f95ee85d3dff73c557e6e0f46a2a6';
-const src_api_secret = '82f0d3176bd641f7';
-const src_user_id = '61358517@N00';
+// source
+const src_api_key = '';
+const src_api_secret = '';
+const src_user_id = '';
 
-const dest_api_key = '9ad4723e60c7a76a9afdb4422030699f';
-const dest_api_secret = '0bf15c70b1af0740';
-const dest_oauth_token = '72157711547228658-4aba229d39eaad20';
-const dest_oauth_token_secret = '354e90b338409bfc';
+// destination
+const dest_api_key = '';
+const dest_api_secret = '';
+const dest_oauth_token = '';
+const dest_oauth_token_secret = '';
 
 const api_endpoint = 'https://www.flickr.com/services/rest/';
 const photoset_dictionary = './photoset_dictionary.json'; 
 const oauth_version = '1.0';
 const oauth_signature_method = 'HMAC-SHA1';
+
+const temp_photo_storage = '/tmp/flickr_downloads/';
+
+if (!file_exists(temp_photo_storage)) {
+   system('mkdir ' . temp_photo_storage);
+}
 
 $per_page = 1;
 
@@ -43,7 +51,7 @@ for ($i=$page; $i<=$pages; $i++) {
 
       $original_photo = 'https://farm' . $farm . '.staticflickr.com/' . $server . '/' . $filename;
 
-      system('curl -o ./downloads/' . $filename . ' ' . $original_photo);
+      system('curl -o ' . temp_photo_storage . $filename . ' ' . $original_photo);
 
       $title = $info->title->_content;
       $description = $info->description->_content;
@@ -76,7 +84,7 @@ for ($i=$page; $i<=$pages; $i++) {
          'description' => $description,
          'tags' => $tags,
          'is_public' => '0',
-         'photo' => new \CurlFile('./downloads/'.$filename, mime_content_type('./downloads/'.$filename), 'photo'),
+         'photo' => new \CurlFile(temp_photo_storage . $filename, mime_content_type(temp_photo_storage . $filename), 'photo'),
       ];
 
       // upload the photo
@@ -130,7 +138,7 @@ for ($i=$page; $i<=$pages; $i++) {
 
 
       // delete the src photo
-      unlink('./downloads/'.$filename);
+      unlink(temp_photo_storage . $filename);
       
       // try not to hit the APIs aggressively
       sleep(random_int(1,3));
