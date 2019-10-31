@@ -12,6 +12,7 @@ const dest_oauth_token = '';
 const dest_oauth_token_secret = '';
 
 const api_endpoint = 'https://www.flickr.com/services/rest/';
+const original_photo_url = 'https://farm%farm-id%.staticflickr.com/%server-id%/%filename%';
 const oauth_version = '1.0';
 const oauth_signature_method = 'HMAC-SHA1';
 
