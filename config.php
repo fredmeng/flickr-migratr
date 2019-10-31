@@ -1,5 +1,4 @@
 <?php
-// https://www.flickr.com/services/api/
 const api_key = '';
 const api_secret = '';
 
@@ -16,5 +15,8 @@ const api_endpoint = 'https://www.flickr.com/services/rest/';
 const oauth_version = '1.0';
 const oauth_signature_method = 'HMAC-SHA1';
 
-
-?>
+const debug = false;
+const log_path = '/tmp/flickr_migratr_error.log';
+const photoset_dictionary = './photoset_dictionary.json';
+const temp_photo_storage = '/tmp/flickr_migratr_tmp/';
+const tag_to_mark_migration_status = '__migrated_already__';
