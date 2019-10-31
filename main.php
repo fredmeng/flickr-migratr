@@ -1,6 +1,7 @@
 <?php
 include('config.php');
 
+$photoset_dictionary = './photoset_dictionary.json';
 $temp_photo_storage = '/tmp/flickr_downloads/';
 
 if (!file_exists($temp_photo_storage)) {
@@ -44,7 +45,6 @@ for ($page = 1; $page <= $pages; $page++) {
       sleep(random_int(1,3));
    }
 
-   var_dump($search);
 
    foreach ($search->photos->photo as $photo) {
 
@@ -70,7 +70,6 @@ for ($page = 1; $page <= $pages; $page++) {
       $info = $info->photo;
 
 
-      var_dump($info);
 
       $osecret = $info->originalsecret;
       $oformat = $info->originalformat;
@@ -111,13 +110,12 @@ for ($page = 1; $page <= $pages; $page++) {
          sleep(random_int(1,3));
       }
 
-      var_dump($contexts);
 
       $photosets = array();
 
       if (!empty($contexts->set)) {
          foreach($contexts->set as $set) {
-            array_push($photosets, $set->title);
+            array_push($photosets, array('id' => $set->id, 'title' => $set->title));
          }
       }
 
@@ -132,13 +130,15 @@ for ($page = 1; $page <= $pages; $page++) {
 
       // upload the photo
       $upload_res = null;
-      $match = null;
+      $new_photo_id = null;
       for ($j=$current_retry; $j<$max_retry; $j++) {
          
          // uploading
          $upload_res = flickr_upload($args);
+         preg_match("|<photoid>(.*)</photoid>|", $upload_res, $match);
          
-         if (preg_match("|<photoid>(.*)</photoid>|", $upload_res, $match)) {
+         if (!empty($match)) {
+            $new_photo_id = $match[1];
             $current_retry = 0;
             break;
          }
@@ -148,66 +148,29 @@ for ($page = 1; $page <= $pages; $page++) {
       }
       
       // adding the newly uploaded photo into photosets 
-      if (!empty($photosets) && isset($match)) {
+      if (!empty($photosets) && !empty($new_photo_id)) {
 
-         $new_photo_id = str_replace(array('<photoid>','</photoid>'), array('',''), $match[0]); 
 
          foreach($photosets as $photoset) {
 
             // check if the photoset exists
-            if (file_exists(photoset_dictionary)) {
-
-               $photoset_dic = json_decode(file_get_contents(photoset_dictionary), true);
-               $key = md5($photoset);
-
-               if (array_key_exists($key, $photoset_dic)) {
-                  $photoset_id = $photoset_dic[$key];
-               }
+            if (file_exists($photoset_dictionary)) {
+               $photoset_dic = json_decode(file_get_contents($photoset_dictionary), true);
+            } else {
+               $photoset_dic = array();
             }
 
-            // if photoset doesn't exist, create one and add the new photo into it
-            if (!isset($photoset_id)) {
 
-               $photoset_create_res = null;
-               for ($j=$current_retry; $j<$max_retry; $j++) {
+            // add the new photo into an existing photoset
+            if (array_key_exists($photoset['id'], $photoset_dic)) {
 
-                  // photosets_create
-                  $photoset_create_res = photosets_create($photoset, $new_photo_id);
+               $new_photoset_id = $photoset_dic[$photoset['id']]['new_id'];
 
-                  if (isset($photoset_create_res->stat) && strcasecmp($photoset_create_res->stat, 'ok') === 0) {
-                     $current_retry = 0;
-                     break;
-                  }
-
-                  $current_retry++;
-                  sleep(random_int(1,3));
-               }
-
-               $photoset_id = $photoset_create_res->photoset->id;
-
-               if (!isset($photoset_dic)) {
-                  $photoset_dic = array();
-               }
-
-               $photoset_dic[md5($photoset)]  = $photoset_id;
-
-               if (file_exists(photoset_dictionary)) {
-                  $resource = fopen(photoset_dictionary, 'w+');
-               } else {
-                  $resource = fopen(photoset_dictionary, 'x+');
-               }
-
-               fwrite($resource, json_encode($photoset_dic));
-               fclose($resource);
-
-            } else {
-
-               // add the new photo into an existing photoset
                $photosets_addPhoto_res = null;
                for ($j=$current_retry; $j<$max_retry; $j++) {
 
                   // photosets_addPhoto
-                  $photosets_addPhoto_res = photosets_addPhoto($photoset_id, $new_photo_id);       
+                  $photosets_addPhoto_res = photosets_addPhoto($new_photoset_id, $new_photo_id);       
 
                   if (isset($photosets_addPhoto_res->stat) && strcasecmp($photosets_addPhoto_res->stat, 'ok') === 0) {
                      $current_retry = 0;
@@ -218,7 +181,40 @@ for ($page = 1; $page <= $pages; $page++) {
                   sleep(random_int(1,3));
                }
 
+            } else {
+
+               // if photoset doesn't exist, create one and add the new photo into it
+
+               $photoset_create_res = null;
+
+               for ($j=$current_retry; $j<$max_retry; $j++) {
+
+                  // photosets_create
+                  $photoset_create_res = photosets_create($photoset['title'], $new_photo_id);
+
+                  if (isset($photoset_create_res->stat) && strcasecmp($photoset_create_res->stat, 'ok') === 0) {
+                     $current_retry = 0;
+                     break;
+                  }
+
+                  $current_retry++;
+                  sleep(random_int(1,3));
+               }
+
+               $new_photoset_id = $photoset_create_res->photoset->id;
+
+               $photoset_dic[$photoset['id']] =  array('new_id' => $new_photoset_id, 'title' => $photoset['title']);
+               
+               if (file_exists($photoset_dictionary)) {
+                  $resource = fopen($photoset_dictionary, 'w+');
+               } else {
+                  $resource = fopen($photoset_dictionary, 'x+');
+               }
+
+               fwrite($resource, json_encode($photoset_dic,  JSON_UNESCAPED_UNICODE));
+               fclose($resource);
             }
+            
          }
       }
 
@@ -238,29 +234,27 @@ function photos_search($user_id, $per_page, $page)
    $method = 'flickr.photos.search';
 
    $params =
-      "api_key=" . dest_api_key . 
+      "api_key=" . src_api_key . 
       "&format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . dest_api_key . 
+      "&oauth_consumer_key=" . src_api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
-      "&oauth_token=" . dest_oauth_token .
+      "&oauth_token=" . src_oauth_token .
       "&oauth_version=" . oauth_version .
       "&page=" . $page .
       "&per_page=" . $per_page .
       "&user_id=" . $user_id;
 
    $base_string = 'GET&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = dest_api_secret . '&' . dest_oauth_token_secret;
+   $hash_key = src_api_secret . '&' . src_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
 
-   error_log("*** search *** \n\n", 3, 'error.log');
-   error_log($params . "\n\n", 3, 'error.log');
-   error_log($base_string . "\n\n", 3, 'error.log');
+   //error_log("*** search *** \n\n", 3, 'error.log');
 
    return http_request(api_endpoint, $params);
 }
@@ -272,27 +266,25 @@ function photos_getInfo($photo_id)
    $method = 'flickr.photos.getInfo';
 
    $params =
-      "api_key=" . dest_api_key . 
+      "api_key=" . src_api_key . 
       "&format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . dest_api_key . 
+      "&oauth_consumer_key=" . src_api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
-      "&oauth_token=" . dest_oauth_token .
+      "&oauth_token=" . src_oauth_token .
       "&oauth_version=" . oauth_version .
       "&photo_id=" . $photo_id;
 
    $base_string = 'GET&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = dest_api_secret . '&' . dest_oauth_token_secret;
+   $hash_key = src_api_secret . '&' . src_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
    
-   error_log("*** getInfo *** \n\n", 3, 'error.log');
-   error_log($params . "\n\n", 3, 'error.log');
-   error_log($base_string . "\n\n", 3, 'error.log');
+   //error_log("*** getInfo *** \n\n", 3, 'error.log');
 
    return http_request(api_endpoint, $params);
 }
@@ -304,23 +296,25 @@ function photos_getAllContexts($photo_id)
    $method = 'flickr.photos.getAllContexts';
 
    $params =
-      "api_key=" . dest_api_key . 
+      "api_key=" . src_api_key . 
       "&format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . dest_api_key . 
+      "&oauth_consumer_key=" . src_api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
-      "&oauth_token=" . dest_oauth_token .
+      "&oauth_token=" . src_oauth_token .
       "&oauth_version=" . oauth_version .
       "&photo_id=" . $photo_id;
 
    $base_string = 'GET&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = dest_api_secret . '&' . dest_oauth_token_secret;
+   $hash_key = src_api_secret . '&' . src_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
+   
+   //error_log("*** getAllContexts *** \n\n", 3, 'error.log');
 
    return http_request(api_endpoint, $params);
 }
@@ -366,6 +360,8 @@ function photosets_addPhoto($photoset_id, $photo_id)
          'photoset_id' => $photoset_id,
          'oauth_signature' => $oauth_sig,
          );
+   
+   //error_log("*** addPhoto *** \n\n", 3, 'error.log');
 
    return http_request(api_endpoint, $params, $args, 'POST');
 }
@@ -411,6 +407,8 @@ function photosets_create($title, $photo_id)
          'title' => $title,
          'oauth_signature' => $oauth_sig,
          );
+   
+   //error_log("*** createPhotoSet *** \n\n", 3, 'error.log');
 
    return http_request(api_endpoint, $params, $args, 'POST');
 
@@ -469,10 +467,11 @@ function http_request($api_endpoint, $params = null, $args = null, $method = 'GE
       curl_setopt($curl, CURLOPT_POSTFIELDS, $args);
    }
 
+   //error_log($api_endpoint . "\n\n", 3, 'error.log');
    $response = curl_exec($curl);
    curl_close($curl);
 
-   error_log($response, 3, 'error.log');
+   //error_log($response . "\n\n", 3, 'error.log');
 
    if ($json_decode) {
       return json_decode($response);
