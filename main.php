@@ -31,10 +31,10 @@ for($j=$current_retry; $j<$max_retry; $j++) {
    sleep(random_int(1,3));
 }
 
-$pages = 2;//$search->photos->pages;
-$per_page = 2;
+$total_pages = $search->photos->pages;
+$per_page = 100;
 
-for ($page = 1; $page <= $pages; $page++) {
+for ($page = 1; $page <= $total_pages; $page++) {
 
    // photos_search
    $search = null;
