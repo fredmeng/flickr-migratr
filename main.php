@@ -79,12 +79,20 @@ for ($page = 1; $page <= $total_pages; $page++) {
       $oformat = $info->originalformat;
       $filename = $id . '_' . $osecret . '_o.' . $oformat;
 
-      $original_photo = 'https://farm' . $farm . '.staticflickr.com/' . $server . '/' . $filename;
+      // building the original photo url
+      $original_photo = str_replace(array('%farm-id%', '%server-id%', '%filename%'), array($farm, $server, $filename), original_photo_url);
 
+      // fetching the original photo
       system('curl -o ' . temp_photo_storage . $filename . ' ' . $original_photo);
 
+      // photo title & description
       $title = $info->title->_content;
       $description = $info->description->_content;
+
+      // photo permissions
+      $is_public = $info->visibility->ispublic; 
+      $is_friend = $info->visibility->isfriend;
+      $is_family = $info->visibility->isfamily;
 
       // tags
       $tags = '';
@@ -128,7 +136,9 @@ for ($page = 1; $page <= $total_pages; $page++) {
          'title' => $title,
          'description' => $description,
          'tags' => $tags,
-         'is_public' => '0',
+         'is_friend' => $is_friend,
+         'is_family' => $is_family,
+         'is_public' => $is_public,
          'photo' => new \CurlFile(temp_photo_storage . $filename, mime_content_type(temp_photo_storage . $filename), 'photo'),
       ];
 

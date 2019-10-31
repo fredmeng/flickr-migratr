@@ -8,6 +8,8 @@ function flickr_upload($args)
    $now = time();
 
    $params = "description=" . rawurlencode($args['description']) .
+      "&is_family=" . rawurlencode($args['is_family']) .
+      "&is_friend=" . rawurlencode($args['is_friend']) .
       "&is_public=" . rawurlencode($args['is_public']) .
       "&oauth_consumer_key=" . api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
