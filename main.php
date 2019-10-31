@@ -1,8 +1,11 @@
 <?php
 include('config.php');
 
+const debug = false;
+
 $photoset_dictionary = './photoset_dictionary.json';
 $temp_photo_storage = '/tmp/flickr_downloads/';
+$tag_to_mark_migration_status = 'migrated_already';
 
 if (!file_exists($temp_photo_storage)) {
    system('mkdir ' . $temp_photo_storage);
@@ -26,7 +29,7 @@ for($j=$current_retry; $j<$max_retry; $j++) {
 }
 
 $pages = 2;//$search->photos->pages;
-$per_page = 1;
+$per_page = 2;
 
 for ($page = 1; $page <= $pages; $page++) {
 
@@ -34,7 +37,7 @@ for ($page = 1; $page <= $pages; $page++) {
    $search = null;
    for ($j=$current_retry; $j<$max_retry; $j++) {
 
-      $search = photos_search(src_user_id, $per_page, $page);
+      $search = photos_search(src_user_id, $per_page, $page, $tag_to_mark_migration_status);
 
       if (isset($search->stat) && strcasecmp($search->stat, 'ok') === 0) {
          $current_retry = 0;
@@ -68,8 +71,6 @@ for ($page = 1; $page <= $pages; $page++) {
       }
 
       $info = $info->photo;
-
-
 
       $osecret = $info->originalsecret;
       $oformat = $info->originalformat;
@@ -218,43 +219,101 @@ for ($page = 1; $page <= $pages; $page++) {
          }
       }
 
-      // delete the src photo
+      // add a tag to mark the photo has been migrated
+      photos_addTags($id, $tag_to_mark_migration_status);
+
+      // delete the src photo download
       unlink($temp_photo_storage . $filename);
+
       
       // try not to hit the APIs aggressively
-      sleep(random_int(1,3));
+      sleep(1);
    }
 
 }
 
-function photos_search($user_id, $per_page, $page)
+function photos_addTags($photo_id, $tags)
+{
+   $oauth_nonce = md5(uniqid(rand(), true));
+   $now = time();
+   $method = 'flickr.photos.addTags';
+
+   $params =
+      "format=json" .
+      "&method=" . $method . 
+      "&nojsoncallback=1" . 
+      "&oauth_consumer_key=" . api_key . 
+      "&oauth_nonce=" . $oauth_nonce . 
+      "&oauth_signature_method=" . oauth_signature_method .
+      "&oauth_timestamp=" . $now .
+      "&oauth_token=" . src_oauth_token .
+      "&oauth_version=" . oauth_version .
+      "&photo_id=" . $photo_id .
+      "&tags=" . rawurlencode($tags);
+
+   $base_string = 'POST&'. urlencode(api_endpoint) . '&' . urlencode($params);
+   $hash_key = api_secret . '&' . src_oauth_token_secret;
+   $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
+
+   $params .= '&oauth_signature=' . $oauth_sig;
+   
+   $args = array(
+         'format' => 'json',
+         'method' => $method,
+         'nojsoncallback' => 1,
+         'oauth_consumer_key' => api_key,
+         'oauth_nonce' => $oauth_nonce,
+         'oauth_signature_method' => oauth_signature_method,
+         'oauth_timestamp' => $now,
+         'oauth_token' => src_oauth_token,
+         'oauth_version' => oauth_version,
+         'photo_id' => $photo_id,
+         'tags' => rawurlencode($tags),
+         'oauth_signature' => $oauth_sig,
+         );
+   
+
+   if (debug) {
+      error_log("*** addTags *** \n", 3, 'error.log');
+   }
+
+   return http_request(api_endpoint, $params, $args, 'POST');
+}
+
+function photos_search($user_id, $per_page, $page, $tags_to_exclude = null)
 {
    $oauth_nonce = md5(uniqid(rand(), true));
    $now = time();
    $method = 'flickr.photos.search';
 
    $params =
-      "api_key=" . src_api_key . 
-      "&format=json" .
+      "format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . src_api_key . 
+      "&oauth_consumer_key=" . api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
       "&oauth_token=" . src_oauth_token .
       "&oauth_version=" . oauth_version .
       "&page=" . $page .
-      "&per_page=" . $per_page .
-      "&user_id=" . $user_id;
+      "&per_page=" . $per_page;
+
+   if (!empty($tags_to_exclude)) {
+      $params .= '&text=' . rawurlencode('-' . $tags_to_exclude);
+   }
+
+   $params .= "&user_id=" . $user_id;
 
    $base_string = 'GET&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = src_api_secret . '&' . src_oauth_token_secret;
+   $hash_key = api_secret . '&' . src_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
 
-   //error_log("*** search *** \n\n", 3, 'error.log');
+   if (debug) {
+      error_log("*** search *** \n", 3, 'error.log');
+   }
 
    return http_request(api_endpoint, $params);
 }
@@ -266,11 +325,10 @@ function photos_getInfo($photo_id)
    $method = 'flickr.photos.getInfo';
 
    $params =
-      "api_key=" . src_api_key . 
-      "&format=json" .
+      "format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . src_api_key . 
+      "&oauth_consumer_key=" . api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
@@ -279,12 +337,15 @@ function photos_getInfo($photo_id)
       "&photo_id=" . $photo_id;
 
    $base_string = 'GET&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = src_api_secret . '&' . src_oauth_token_secret;
+   $hash_key = api_secret . '&' . src_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
    
-   //error_log("*** getInfo *** \n\n", 3, 'error.log');
+   
+   if (debug) {
+      error_log("*** getInfo *** \n", 3, 'error.log');
+   }
 
    return http_request(api_endpoint, $params);
 }
@@ -296,11 +357,10 @@ function photos_getAllContexts($photo_id)
    $method = 'flickr.photos.getAllContexts';
 
    $params =
-      "api_key=" . src_api_key . 
-      "&format=json" .
+      "format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . src_api_key . 
+      "&oauth_consumer_key=" . api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
@@ -309,12 +369,14 @@ function photos_getAllContexts($photo_id)
       "&photo_id=" . $photo_id;
 
    $base_string = 'GET&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = src_api_secret . '&' . src_oauth_token_secret;
+   $hash_key = api_secret . '&' . src_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
    
-   //error_log("*** getAllContexts *** \n\n", 3, 'error.log');
+   if (debug) {
+      error_log("*** getAllContexts *** \n", 3, 'error.log');
+   }
 
    return http_request(api_endpoint, $params);
 }
@@ -326,11 +388,10 @@ function photosets_addPhoto($photoset_id, $photo_id)
    $method = 'flickr.photosets.addPhoto';
 
    $params = 
-      "api_key=" . dest_api_key . 
-      "&format=json" .
+      "format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . dest_api_key . 
+      "&oauth_consumer_key=" . api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
@@ -340,17 +401,16 @@ function photosets_addPhoto($photoset_id, $photo_id)
       "&photoset_id=" . $photoset_id;
 
    $base_string = 'POST&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = dest_api_secret . '&' . dest_oauth_token_secret;
+   $hash_key = api_secret . '&' . dest_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
 
    $args = array(
-         'api_key' => dest_api_key,
          'format' => 'json',
          'method' => $method,
          'nojsoncallback' => 1,
-         'oauth_consumer_key' => dest_api_key,
+         'oauth_consumer_key' => api_key,
          'oauth_nonce' => $oauth_nonce,
          'oauth_signature_method' => oauth_signature_method,
          'oauth_timestamp' => $now,
@@ -361,7 +421,9 @@ function photosets_addPhoto($photoset_id, $photo_id)
          'oauth_signature' => $oauth_sig,
          );
    
-   //error_log("*** addPhoto *** \n\n", 3, 'error.log');
+   if (debug) {
+      error_log("*** addPhoto *** \n", 3, 'error.log');
+   }
 
    return http_request(api_endpoint, $params, $args, 'POST');
 }
@@ -373,11 +435,10 @@ function photosets_create($title, $photo_id)
    $method = 'flickr.photosets.create';
 
    $params = 
-      "api_key=" . dest_api_key . 
-      "&format=json" .
+      "format=json" .
       "&method=" . $method . 
       "&nojsoncallback=1" . 
-      "&oauth_consumer_key=" . dest_api_key . 
+      "&oauth_consumer_key=" . api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
@@ -387,17 +448,16 @@ function photosets_create($title, $photo_id)
       "&title=" . rawurlencode($title); 
 
    $base_string = 'POST&'. urlencode(api_endpoint) . '&' . urlencode($params);
-   $hash_key = dest_api_secret . '&' . dest_oauth_token_secret;
+   $hash_key = api_secret . '&' . dest_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
 
    $args = array(
-         'api_key' => dest_api_key,
          'format' => 'json',
          'method' => $method,
          'nojsoncallback' => 1,
-         'oauth_consumer_key' => dest_api_key,
+         'oauth_consumer_key' => api_key,
          'oauth_nonce' => $oauth_nonce,
          'oauth_signature_method' => oauth_signature_method,
          'oauth_timestamp' => $now,
@@ -408,7 +468,9 @@ function photosets_create($title, $photo_id)
          'oauth_signature' => $oauth_sig,
          );
    
-   //error_log("*** createPhotoSet *** \n\n", 3, 'error.log');
+   if (debug) {
+      error_log("*** createPhotoSet *** \n\n", 3, 'error.log');
+   }
 
    return http_request(api_endpoint, $params, $args, 'POST');
 
@@ -423,7 +485,7 @@ function flickr_upload($args)
 
    $params = "description=" . rawurlencode($args['description']) .
       "&is_public=" . rawurlencode($args['is_public']) .
-      "&oauth_consumer_key=" . dest_api_key . 
+      "&oauth_consumer_key=" . api_key . 
       "&oauth_nonce=" . $oauth_nonce . 
       "&oauth_signature_method=" . oauth_signature_method .
       "&oauth_timestamp=" . $now .
@@ -433,12 +495,12 @@ function flickr_upload($args)
       "&title=" . rawurlencode($args['title']);
 
    $base_string = 'POST&'. urlencode($upload_endpoint) . '&' . urlencode($params);
-   $hash_key = dest_api_secret . '&' . dest_oauth_token_secret;
+   $hash_key = api_secret . '&' . dest_oauth_token_secret;
    $oauth_sig = base64_encode(hash_hmac('sha1', $base_string, $hash_key, true));
 
    $params .= '&oauth_signature=' . $oauth_sig;
 
-   $args['oauth_consumer_key'] = dest_api_key;
+   $args['oauth_consumer_key'] = api_key;
    $args['oauth_nonce'] = $oauth_nonce;
    $args['oauth_signature_method'] = oauth_signature_method;
    $args['oauth_timestamp'] = $now;
@@ -467,11 +529,16 @@ function http_request($api_endpoint, $params = null, $args = null, $method = 'GE
       curl_setopt($curl, CURLOPT_POSTFIELDS, $args);
    }
 
-   //error_log($api_endpoint . "\n\n", 3, 'error.log');
+   if (debug) {
+      error_log($api_endpoint . "\n\n", 3, 'error.log');
+   }
+   
    $response = curl_exec($curl);
    curl_close($curl);
 
-   //error_log($response . "\n\n", 3, 'error.log');
+   if (debug) {
+      error_log($response . "\n\n", 3, 'error.log');
+   }
 
    if ($json_decode) {
       return json_decode($response);
