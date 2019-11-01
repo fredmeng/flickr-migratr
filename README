@@ -1,6 +1,6 @@
 ## PHP scripts to move Flickr photos from one account (source/src) to another (destination/dest) 
 
-The scripts here handle sign-in in order to retrieve both public and private photos with the original format. And also, the meta info including title, descriptions, tags, photosets and visibility will be migrated as well.
+The user authentication part is also implemented in order to retrieve both public and private photos with the original format. And, the meta info including title, descriptions, tags, photosets and visibility will be migrated as well.
 
 ### Step-by-step How-TO
 
