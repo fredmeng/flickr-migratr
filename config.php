@@ -20,4 +20,7 @@ const debug = false;
 const log_path = '/tmp/flickr_migratr_error.log';
 const photoset_dictionary = './photoset_dictionary.json';
 const temp_photo_storage = '/tmp/flickr_migratr_tmp/';
-const tag_to_mark_migration_status = '__migrated_already__';
+const tag_to_mark_migration_status = '__migrated_successfully__';
+
+
+?>
