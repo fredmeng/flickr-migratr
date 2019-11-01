@@ -1,9 +1,9 @@
-# PHP scripts to move Flickr photos from one account (source/src) to another (destination/dest). 
+## PHP scripts to move Flickr photos from one account (source/src) to another (destination/dest) 
 
 
-The meta info include title, descriptions, tags, photosets and visibility will be migrated too.
+And the meta info including title, descriptions, tags, photosets and visibility will be migrated too.
 
-## Step-by-step How-TO
+### Step-by-step How-TO
 
 **Step 1** Go to https://www.flickr.com/services/api/ to get your own API key and API secret
 
