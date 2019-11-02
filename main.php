@@ -16,11 +16,12 @@ if (!file_exists(temp_photo_storage)) {
 
 $max_retry = 10;
 $current_retry = 0;
+$per_page = 100;
 
 $search = null;
 for($j=$current_retry; $j<$max_retry; $j++) {
 
-   $search = photos_search(src_user_id, 1, 1);
+   $search = photos_search(src_user_id, $per_page, 1);
 
    if (isset($search->stat) && strcasecmp($search->stat, 'ok') === 0) {
       $current_retry = 0;
@@ -32,7 +33,6 @@ for($j=$current_retry; $j<$max_retry; $j++) {
 }
 
 $total_pages = $search->photos->pages;
-$per_page = 100;
 
 for ($page = 1; $page <= $total_pages; $page++) {
 
